@@ -12,8 +12,8 @@ add_subdirectory(src/Core)
 # WaffleCore has no such dependency by design (project spec §4.1) and is
 # what this repository's CI builds and tests on Linux.
 if(WIN32)
-    # add_subdirectory(src/Render)
-    # add_subdirectory(src/Demo)
+    add_subdirectory(src/Render)
+    add_subdirectory(src/Demo)
     # add_subdirectory(src/CredentialProvider)
     # add_subdirectory(src/Control)
 endif()
