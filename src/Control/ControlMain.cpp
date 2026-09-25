@@ -51,11 +51,19 @@ std::wstring FormatStatus(const StatusReport& status)
        << L"\n"
        << L"DLL:                   " << (status.dllPresent ? status.dllPath : L"not found") << L"\n"
        << L"Config:                " << (status.configPresent ? status.configPath : L"not found (defaults apply)")
-       << L"\n\n";
+       << L"\n"
+       << L"Kill switch:           " << status.killSwitchCount << L"/3 recent failures/crashes"
+       << (status.killSwitchActive ? L" -- ACTIVE (tile hidden)" : L"") << L"\n\n";
 
     if (!status.comRegistered && !status.dllPresent)
     {
         ss << L"Not installed. Run install.ps1 as Administrator.";
+    }
+    else if (status.killSwitchActive)
+    {
+        ss << L"Installed and enabled, but the kill switch has tripped (spec §9.2): 3 failed "
+              L"initializations/crashes in a row. The tile will stay hidden until you click Enable "
+              L"again (that also resets this counter).";
     }
     else if (!status.IsEnabled())
     {

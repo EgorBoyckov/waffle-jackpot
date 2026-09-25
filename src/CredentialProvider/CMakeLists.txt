@@ -12,6 +12,8 @@ add_library(WaffleJackpotProvider SHARED
     JackpotCredential.cpp
     JackpotProvider.h
     JackpotProvider.cpp
+    KillSwitch.h
+    KillSwitch.cpp
     SlotDialog.h
     SlotDialog.cpp
     resource.h
@@ -25,6 +27,7 @@ target_link_libraries(WaffleJackpotProvider
     PRIVATE
         WaffleCore
         WaffleRender
+        advapi32
         credui
         shlwapi
         propsys

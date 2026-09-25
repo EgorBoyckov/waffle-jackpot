@@ -22,8 +22,15 @@ struct StatusReport
     std::wstring dllPath;
     std::wstring configPath;
 
+    // spec §9.2 kill switch: HKLM\SOFTWARE\WaffleJackpot\CrashCount, the
+    // same counter src/CredentialProvider/KillSwitch.h tracks. Reported
+    // here so Status can explain a tile that's "installed and enabled"
+    // but still not showing up.
+    int killSwitchCount = 0;
+    bool killSwitchActive = false;
+
     bool IsFullyInstalled() const { return comRegistered && dllPresent; }
-    bool IsEnabled() const { return providerRegistered; }
+    bool IsEnabled() const { return providerRegistered && !killSwitchActive; }
 };
 
 StatusReport QueryStatus();
@@ -43,16 +50,20 @@ bool IsElevated();
 bool RelaunchElevated(const std::wstring& arguments);
 
 // Registry-only; never touches the DLL file or config.json. Idempotent:
-// safe to call when already in the target state.
+// safe to call when already in the target state. EnableProvider also
+// resets the kill-switch counter to zero -- spec §9.2: the provider
+// "перестаёт показывать плитку до ручного WaffleJackpotControl.exe
+// enable", so this is the one place that's supposed to clear it.
 bool EnableProvider(std::wstring* outError);
 bool DisableProvider(std::wstring* outError);
 
 // Removes the provider's registration (COM + Credential Providers key),
-// the installed DLL, and config.json/its directory. Deliberately does
-// NOT touch Control.exe or WaffleJackpotDemo.exe -- see ControlMain.cpp's
-// comment on why those are never installed under the same ACL-locked
-// directory this removes, which is what keeps this simple (no
-// self-delete-while-running problem to solve).
+// the installed DLL, config.json/its directory, and the kill-switch
+// registry key. Deliberately does NOT touch Control.exe or
+// WaffleJackpotDemo.exe -- see ControlMain.cpp's comment on why those are
+// never installed under the same ACL-locked directory this removes,
+// which is what keeps this simple (no self-delete-while-running problem
+// to solve).
 bool UninstallProvider(std::wstring* outError);
 
 }  // namespace waffle::control

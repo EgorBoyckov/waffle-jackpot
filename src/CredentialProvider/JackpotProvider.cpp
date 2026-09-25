@@ -7,6 +7,8 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 
+#include "KillSwitch.h"
+
 namespace {
 
 std::wstring ResolveConfigPath()
@@ -33,15 +35,21 @@ JackpotProvider::JackpotProvider()
       _upAdviseContext(0)
 {
     // Owner/ACL validation from spec §7 ("CP проверяет владельца файла и
-    // при несоответствии игнорирует конфиг") isn't implemented yet: there
-    // is no installer setting that ACL until Phase 6, so there'd be
-    // nothing real on a VM to validate against today. ConfigLoader's
-    // existing malformed/missing-file fallback to defaults already covers
-    // "no config file present" safely (never throws, spec §9.1); the
-    // owner check is a Phase 6/7 follow-up once install.ps1 exists to set
-    // the ACL it would be checking.
+    // при несоответствии игнорирует конфиг") still isn't implemented.
+    // install.ps1 (Phase 6) now actually sets the ACL this check would
+    // validate against, so the excuse that there was nothing real to
+    // check has expired -- this is a genuine gap, not deferred to a
+    // later phase by the plan itself (§13's phase table doesn't list ACL
+    // validation under Phase 7 either). Flagging it here rather than
+    // quietly carrying it forward again. ConfigLoader's existing
+    // malformed/missing-file fallback to defaults still covers "no
+    // config file present" safely (never throws, spec §9.1) regardless.
     const std::wstring configPath = ResolveConfigPath();
     _config = configPath.empty() ? waffle::Config::Default() : waffle::ConfigLoader::LoadFromFile(configPath);
+
+    // spec §9.2 kill switch: count this initialization; RecordCleanShutdown
+    // (destructor) balances it out unless we crash before getting there.
+    waffle::cp::RecordInitializationStart();
 }
 
 JackpotProvider::~JackpotProvider()
@@ -56,6 +64,9 @@ JackpotProvider::~JackpotProvider()
         _pCredProvEvents->Release();
         _pCredProvEvents = nullptr;
     }
+
+    // Reaching here means this session didn't crash -- see KillSwitch.h.
+    waffle::cp::RecordCleanShutdown();
 }
 
 IFACEMETHODIMP JackpotProvider::QueryInterface(REFIID riid, void** ppv)
@@ -91,6 +102,14 @@ bool JackpotProvider::ShouldParticipate() const
     }
     // spec §6.3: RDP sessions get the normal Windows logon by default.
     if (GetSystemMetrics(SM_REMOTESESSION) && !_config.showInRemoteSessions)
+    {
+        return false;
+    }
+    // spec §9.2: three crashes/failed inits in a row and we stop showing
+    // a tile until a human runs `WaffleJackpotControl.exe enable`. Not a
+    // hard failure of our own (spec §9.1) -- just zero tiles, same as a
+    // disabled config.
+    if (waffle::cp::IsKillSwitchActive())
     {
         return false;
     }

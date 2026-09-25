@@ -47,6 +47,30 @@ std::wstring InprocKeyPath()
     return ClsidKeyPath() + L"\\InprocServer32";
 }
 
+// Same key src/CredentialProvider/KillSwitch.cpp tracks
+// (HKLM\SOFTWARE\WaffleJackpot\CrashCount). Duplicated here for the same
+// reason kClsidString is: Control.exe doesn't link against the provider
+// DLL.
+constexpr wchar_t kKillSwitchKeyPath[] = L"SOFTWARE\\WaffleJackpot";
+constexpr wchar_t kKillSwitchValueName[] = L"CrashCount";
+
+DWORD ReadKillSwitchCount()
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kKillSwitchKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &key) !=
+        ERROR_SUCCESS)
+    {
+        return 0;
+    }
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    DWORD type = 0;
+    const LONG status = RegQueryValueExW(key, kKillSwitchValueName, nullptr, &type, reinterpret_cast<BYTE*>(&value),
+                                          &size);
+    RegCloseKey(key);
+    return (status == ERROR_SUCCESS && type == REG_DWORD) ? value : 0;
+}
+
 bool RegistryKeyExists(HKEY root, const std::wstring& subKey)
 {
     HKEY key = nullptr;
@@ -107,6 +131,13 @@ StatusReport QueryStatus()
         report.configPath = configDir + L"\\config.json";
         report.configPresent = FileExists(report.configPath);
     }
+
+    // Same threshold as waffle::cp::kKillSwitchThreshold (spec §9.2: 3
+    // consecutive failures/crashes).
+    constexpr DWORD kKillSwitchThreshold = 3;
+    const DWORD killSwitchCount = ReadKillSwitchCount();
+    report.killSwitchCount = static_cast<int>(killSwitchCount);
+    report.killSwitchActive = killSwitchCount >= kKillSwitchThreshold;
 
     return report;
 }
@@ -193,6 +224,21 @@ bool EnableProvider(std::wstring* outError)
         }
         return false;
     }
+
+    // spec §9.2: this is the one place that's supposed to clear the kill
+    // switch -- best-effort, not a reason to fail the whole call if it
+    // doesn't work (matches KillSwitch.cpp's own "never a hard failure"
+    // stance on registry writes).
+    HKEY killSwitchKey = nullptr;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, kKillSwitchKeyPath, 0, nullptr, 0, KEY_WRITE | KEY_WOW64_64KEY, nullptr,
+                         &killSwitchKey, nullptr) == ERROR_SUCCESS)
+    {
+        const DWORD zero = 0;
+        RegSetValueExW(killSwitchKey, kKillSwitchValueName, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&zero),
+                        sizeof(zero));
+        RegCloseKey(killSwitchKey);
+    }
+
     return true;
 }
 
@@ -256,6 +302,13 @@ bool UninstallProvider(std::wstring* outError)
             error += L"Could not remove " + configPath + L": " + FormatWin32Error(GetLastError()) + L"\n";
         }
         RemoveDirectoryW(configDir.c_str());
+    }
+
+    // 5. Remove the kill-switch key too.
+    const LONG killSwitchStatus = RegDeleteKeyW(HKEY_LOCAL_MACHINE, kKillSwitchKeyPath);
+    if (killSwitchStatus != ERROR_SUCCESS && killSwitchStatus != ERROR_FILE_NOT_FOUND)
+    {
+        error += L"Could not remove the kill-switch registry key: " + FormatWin32Error(killSwitchStatus) + L"\n";
     }
 
     if (!error.empty())

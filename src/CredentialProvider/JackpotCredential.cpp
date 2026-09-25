@@ -15,6 +15,7 @@
 #include <wincred.h>
 
 #include "SlotDialog.h"
+#include "KillSwitch.h"
 #include "guids.h"
 #include "helpers.h"
 
@@ -383,6 +384,13 @@ IFACEMETHODIMP JackpotCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsS
 {
     *ppwszOptionalStatusText = nullptr;
     *pcpsiOptionalStatusIcon = CPSI_NONE;
+
+    if (ntsStatus == STATUS_SUCCESS)
+    {
+        // spec §9.2: a successful login is a clean bill of health --
+        // whatever the crash/failed-init counter was, it resets to zero.
+        waffle::cp::RecordSuccessfulLogon();
+    }
 
     for (const auto& info : kLogonStatusInfo)
     {
