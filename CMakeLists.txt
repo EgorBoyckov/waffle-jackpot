@@ -18,5 +18,8 @@ if(WIN32)
     # add_subdirectory(src/Control)
 endif()
 
-# Unit tests (GoogleTest) land in Phase 3; tests/CMakeLists.txt doesn't
-# exist yet, so it isn't wired in here until then.
+option(WAFFLE_BUILD_TESTS "Build WaffleCore unit tests (fetches GoogleTest)" ON)
+if(WAFFLE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
