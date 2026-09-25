@@ -15,7 +15,7 @@ if(WIN32)
     add_subdirectory(src/Render)
     add_subdirectory(src/Demo)
     add_subdirectory(src/CredentialProvider)
-    # add_subdirectory(src/Control)
+    add_subdirectory(src/Control)
 endif()
 
 option(WAFFLE_BUILD_TESTS "Build WaffleCore unit tests (fetches GoogleTest)" ON)
