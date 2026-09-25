@@ -221,7 +221,7 @@ IFACEMETHODIMP JackpotProvider::GetCredentialAt(DWORD dwIndex, ICredentialProvid
             auto* credential = new (std::nothrow) JackpotCredential();
             if (credential)
             {
-                hr = credential->Initialize(_cpus, pwzQualifiedUserName, pwzSid);
+                hr = credential->Initialize(_cpus, pwzQualifiedUserName, pwzSid, _config);
                 if (SUCCEEDED(hr))
                 {
                     hr = credential->QueryInterface(IID_PPV_ARGS(ppcpc));

@@ -12,6 +12,8 @@ add_library(WaffleJackpotProvider SHARED
     JackpotCredential.cpp
     JackpotProvider.h
     JackpotProvider.cpp
+    SlotDialog.h
+    SlotDialog.cpp
     resource.h
     resources.rc
     CredentialProvider.def
@@ -22,6 +24,7 @@ target_include_directories(WaffleJackpotProvider PRIVATE ${CMAKE_SOURCE_DIR}/src
 target_link_libraries(WaffleJackpotProvider
     PRIVATE
         WaffleCore
+        WaffleRender
         credui
         shlwapi
         propsys

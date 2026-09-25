@@ -14,6 +14,7 @@
 #include <shlwapi.h>
 #include <wincred.h>
 
+#include "SlotDialog.h"
 #include "guids.h"
 #include "helpers.h"
 
@@ -22,8 +23,16 @@ JackpotCredential::JackpotCredential()
       _cpus(CPUS_INVALID),
       _pCredProvCredentialEvents(nullptr),
       _pwzSid(nullptr),
-      _rgFieldStrings{}
+      _rgFieldStrings{},
+      _rgFieldState{},
+      _rgFieldInteractiveState{},
+      _unlocked(false)
 {
+    for (DWORD i = 0; i < JFI_NUM_FIELDS; ++i)
+    {
+        _rgFieldState[i] = s_rgFieldStatePairs[i].cpfs;
+        _rgFieldInteractiveState[i] = s_rgFieldStatePairs[i].cpfis;
+    }
 }
 
 JackpotCredential::~JackpotCredential()
@@ -72,7 +81,7 @@ IFACEMETHODIMP_(ULONG) JackpotCredential::Release()
 }
 
 HRESULT JackpotCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, PCWSTR pwzQualifiedUserName,
-                                       PCWSTR pwzSid)
+                                       PCWSTR pwzSid, const waffle::Config& config)
 {
     if (!pwzQualifiedUserName || !pwzSid)
     {
@@ -80,6 +89,7 @@ HRESULT JackpotCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, P
     }
 
     _cpus = cpus;
+    _config = config;
     _qualifiedUserName = pwzQualifiedUserName;
 
     HRESULT hr = SHStrDupW(pwzSid, &_pwzSid);
@@ -91,10 +101,13 @@ HRESULT JackpotCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, P
     hr = SHStrDupW(L"WAFFLE JACKPOT", &_rgFieldStrings[JFI_LARGE_TEXT]);
     if (SUCCEEDED(hr))
     {
-        // No slot machine yet in Phase 4 -- this tile is a plain password
-        // login. Phase 5 replaces this string with the jackpot-gated
-        // status text from spec §6.1.
-        hr = SHStrDupW(L"Enter your Windows credentials", &_rgFieldStrings[JFI_SMALL_TEXT]);
+        hr = SHStrDupW(L"Authentication locked. Get 3 waffles.", &_rgFieldStrings[JFI_SMALL_TEXT]);
+    }
+    if (SUCCEEDED(hr))
+    {
+        // spec §6.5: the honest, undisguised way out.
+        hr = SHStrDupW(L"Not feeling lucky? Sign-in options → Coward Mode",
+                        &_rgFieldStrings[JFI_COWARD_TEXT]);
     }
     if (SUCCEEDED(hr))
     {
@@ -151,8 +164,11 @@ IFACEMETHODIMP JackpotCredential::GetFieldState(DWORD dwFieldID, CREDENTIAL_PROV
     {
         return E_INVALIDARG;
     }
-    *pcpfs = s_rgFieldStatePairs[dwFieldID].cpfs;
-    *pcpfis = s_rgFieldStatePairs[dwFieldID].cpfis;
+    // Read from this instance's own (mutable) state, not the static
+    // defaults -- UnlockPasswordField/RelockPasswordField change these at
+    // runtime as the jackpot gate opens and closes.
+    *pcpfs = _rgFieldState[dwFieldID];
+    *pcpfis = _rgFieldInteractiveState[dwFieldID];
     return S_OK;
 }
 
@@ -167,6 +183,7 @@ IFACEMETHODIMP JackpotCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
     {
         case JFI_LARGE_TEXT:
         case JFI_SMALL_TEXT:
+        case JFI_COWARD_TEXT:
         case JFI_PASSWORD:
             return SHStrDupW(_rgFieldStrings[dwFieldID] ? _rgFieldStrings[dwFieldID] : L"", ppwsz);
         default:
@@ -239,10 +256,46 @@ IFACEMETHODIMP JackpotCredential::SetComboBoxSelectedValue(DWORD /*dwFieldID*/, 
     return E_INVALIDARG;
 }
 
-IFACEMETHODIMP JackpotCredential::CommandLinkClicked(DWORD /*dwFieldID*/)
+IFACEMETHODIMP JackpotCredential::CommandLinkClicked(DWORD dwFieldID)
 {
-    // No command-link fields until Phase 5's PULL! button.
-    return E_INVALIDARG;
+    if (dwFieldID != JFI_PULL_LINK)
+    {
+        return E_INVALIDARG;
+    }
+    if (!_pCredProvCredentialEvents)
+    {
+        return E_UNEXPECTED;
+    }
+
+    // spec §6.1 step 2: get LogonUI's window to own our modal automaton.
+    // Per Microsoft Learn's documented contract for
+    // ICredentialProviderCredentialEvents::OnCreatingWindow, this is
+    // exactly what it's for -- a credential wanting to pop up its own
+    // modal UI (used for things like a PIN pad or a CAPTCHA in other
+    // providers). I could not check this against a working sample (see
+    // the Phase 4 commit message on why), so this is applied from the
+    // documented contract, not verified against a reference
+    // implementation -- worth confirming on the first VM run.
+    HWND hwndOwner = nullptr;
+    HRESULT hr = _pCredProvCredentialEvents->OnCreatingWindow(&hwndOwner);
+    if (FAILED(hr) || !hwndOwner)
+    {
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+
+    // RunModal pumps its own nested message loop for as long as the
+    // automaton window is open -- a standard modal dialog technique, not
+    // the kind of un-pumped blocking wait spec §9.3 rules out (blocking
+    // I/O, Sleep, an un-pumped kernel-object wait). Control returns to
+    // LogonUI's own message loop the moment the user wins or closes it.
+    SlotDialog dialog(_config);
+    const bool wonJackpot = dialog.RunModal(hwndOwner);
+    if (wonJackpot)
+    {
+        UnlockPasswordField();
+    }
+
+    return S_OK;
 }
 
 IFACEMETHODIMP JackpotCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
@@ -348,6 +401,14 @@ IFACEMETHODIMP JackpotCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsS
     ClearPasswordField();
     SHStrDupW(L"", &_rgFieldStrings[JFI_PASSWORD]);
 
+    // spec §4.3: after Unlocked, a failed logon either resets the jackpot
+    // (default -- "THE HOUSE KEEPS THE WAFFLES") or leaves the field open
+    // for another password attempt, per config.resetJackpotOnFailedLogon.
+    if (_unlocked && _config.resetJackpotOnFailedLogon)
+    {
+        RelockPasswordField();
+    }
+
     return S_OK;
 }
 
@@ -368,6 +429,56 @@ void JackpotCredential::ClearPasswordField()
         SecureZeroMemory(password, wcslen(password) * sizeof(WCHAR));
         CoTaskMemFree(password);
         password = nullptr;
+    }
+}
+
+void JackpotCredential::SetSmallText(DWORD dwFieldID, PCWSTR pwzText)
+{
+    PWSTR& slot = _rgFieldStrings[dwFieldID];
+    CoTaskMemFree(slot);
+    slot = nullptr;
+    SHStrDupW(pwzText, &slot);
+
+    if (_pCredProvCredentialEvents)
+    {
+        _pCredProvCredentialEvents->SetFieldString(this, dwFieldID, slot ? slot : L"");
+    }
+}
+
+void JackpotCredential::UnlockPasswordField()
+{
+    _unlocked = true;
+
+    _rgFieldState[JFI_PASSWORD] = CPFS_DISPLAY_IN_SELECTED_TILE;
+    _rgFieldState[JFI_SUBMIT_BUTTON] = CPFS_DISPLAY_IN_SELECTED_TILE;
+    _rgFieldInteractiveState[JFI_PASSWORD] = CPFIS_FOCUSED;
+
+    // spec §6.1 step 3's exact status text.
+    SetSmallText(JFI_SMALL_TEXT, L"\U0001F9C7\U0001F9C7\U0001F9C7 JACKPOT! Enter your Windows credentials");
+
+    if (_pCredProvCredentialEvents)
+    {
+        _pCredProvCredentialEvents->SetFieldState(this, JFI_PASSWORD, CPFS_DISPLAY_IN_SELECTED_TILE);
+        _pCredProvCredentialEvents->SetFieldState(this, JFI_SUBMIT_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+        _pCredProvCredentialEvents->SetFieldInteractiveState(this, JFI_PASSWORD, CPFIS_FOCUSED);
+    }
+}
+
+void JackpotCredential::RelockPasswordField()
+{
+    _unlocked = false;
+
+    _rgFieldState[JFI_PASSWORD] = CPFS_HIDDEN;
+    _rgFieldState[JFI_SUBMIT_BUTTON] = CPFS_HIDDEN;
+    _rgFieldInteractiveState[JFI_PASSWORD] = CPFIS_NONE;
+
+    // spec §4.3 default reset message.
+    SetSmallText(JFI_SMALL_TEXT, L"THE HOUSE KEEPS THE WAFFLES");
+
+    if (_pCredProvCredentialEvents)
+    {
+        _pCredProvCredentialEvents->SetFieldState(this, JFI_PASSWORD, CPFS_HIDDEN);
+        _pCredProvCredentialEvents->SetFieldState(this, JFI_SUBMIT_BUTTON, CPFS_HIDDEN);
     }
 }
 
