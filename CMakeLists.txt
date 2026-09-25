@@ -14,7 +14,7 @@ add_subdirectory(src/Core)
 if(WIN32)
     add_subdirectory(src/Render)
     add_subdirectory(src/Demo)
-    # add_subdirectory(src/CredentialProvider)
+    add_subdirectory(src/CredentialProvider)
     # add_subdirectory(src/Control)
 endif()
 
