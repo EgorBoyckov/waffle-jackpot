@@ -1,0 +1,31 @@
+#include "resource.h"
+#include <winresrc.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VER_FILEVERSION
+PRODUCTVERSION  VER_PRODUCTVERSION
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_DLL
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "Waffle Jackpot Login project (joke project, not affiliated with Microsoft)"
+            VALUE "FileDescription",  "Waffle Jackpot Credential Provider"
+            VALUE "FileVersion",      VER_FILEVERSION_STR
+            VALUE "InternalName",     "WaffleJackpotProvider"
+            VALUE "LegalCopyright",   "See README.md for asset/code attribution"
+            VALUE "OriginalFilename", "WaffleJackpotProvider.dll"
+            VALUE "ProductName",      "Waffle Jackpot Login"
+            VALUE "ProductVersion",   VER_PRODUCTVERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

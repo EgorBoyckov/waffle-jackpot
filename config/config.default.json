@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+
+  "jackpotSymbol": "WAFFLE",
+  "reels": 3,
+
+  "reelWeights": {
+    "WAFFLE": 5, "CHERRY": 2, "LEMON": 2, "BELL": 2,
+    "DIAMOND": 1, "STAR": 1, "SEVEN": 1, "LUCKY": 1
+  },
+  "guaranteedJackpotAfterAttempts": 8,
+  "resetJackpotOnFailedLogon": true,
+
+  "animationDurationMs": 2500,
+  "jackpotSequenceMs": 3000,
+  "respectReducedMotion": true,
+
+  "soundEnabled": true,
+  "logonSoundEnabled": false,
+  "volume": 0.6,
+
+  "demoMode": false,
+  "debugMode": false,
+
+  "showInRemoteSessions": false,
+  "experimentalFilterMode": false,
+  "allowEmergencyBypass": true
+}
