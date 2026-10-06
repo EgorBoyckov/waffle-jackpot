@@ -6,7 +6,7 @@
     Deliberately "asInvoker", not "requireAdministrator": spec §10.1 wants
     elevation only for the commands that actually change something
     (enable/disable/uninstall), requested at runtime via the "runas" verb
-    (see Registration::RelaunchElevated) -- not forced on every launch,
+    (see Registration::RelaunchElevated), not forced on every launch,
     which would make even `status` and `demo` pop a UAC prompt.
   -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">

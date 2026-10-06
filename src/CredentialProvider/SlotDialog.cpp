@@ -47,7 +47,7 @@ bool SlotDialog::RunModal(HWND hwndOwner)
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &SlotDialog::WndProcThunk;
     wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(hwndOwner, GWLP_HINSTANCE));
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.lpszClassName = kWindowClassName;
     // Registering a second time in the same process fails harmlessly
     // (ERROR_CLASS_ALREADY_EXISTS); either way CreateWindowExW below can
@@ -178,10 +178,10 @@ void SlotDialog::OnCreate(HWND hwnd)
     _slotMachine = std::make_unique<waffle::SlotMachine>(_config, std::make_unique<waffle::SystemRandomSource>());
     _stateMachine.SetResetOnFailedLogon(_config.resetJackpotOnFailedLogon);
 
-    _renderer = std::make_unique<render::SlotRenderer>(_hwnd);
+    _renderer = std::make_unique<waffle::render::SlotRenderer>(_hwnd);
     _renderer->SetDpi(static_cast<float>(GetDpiForWindow(_hwnd)));
 
-    _audio = std::make_unique<render::AudioManager>();
+    _audio = std::make_unique<waffle::render::AudioManager>();
     _audio->SetVolume(static_cast<float>(_config.volume));
     // spec §5.4: sound is off by default on the logon screen specifically
     // (logonSoundEnabled), separate from the general soundEnabled switch
@@ -326,7 +326,7 @@ void SlotDialog::PullLever()
     }
     if (_audio)
     {
-        _audio->Play(render::Clip::Lever);
+        _audio->Play(waffle::render::Clip::Lever);
     }
     RefreshStatusLine();
     UpdateAnimationTimer();
@@ -340,7 +340,7 @@ void SlotDialog::AdvanceFrame(std::uint32_t dtMs)
         return;
     }
 
-    const render::FrameEvents events = _renderer->Advance(dtMs);
+    const waffle::render::FrameEvents events = _renderer->Advance(dtMs);
 
     if (_audio)
     {
@@ -348,7 +348,7 @@ void SlotDialog::AdvanceFrame(std::uint32_t dtMs)
         {
             if (landed)
             {
-                _audio->Play(render::Clip::ReelTick);
+                _audio->Play(waffle::render::Clip::ReelTick);
             }
         }
     }
@@ -365,7 +365,7 @@ void SlotDialog::AdvanceFrame(std::uint32_t dtMs)
         {
             if (_audio)
             {
-                _audio->Play(_pendingResult.nearMiss ? render::Clip::NearMiss : render::Clip::Loss);
+                _audio->Play(_pendingResult.nearMiss ? waffle::render::Clip::NearMiss : waffle::render::Clip::Loss);
             }
             _lossCooldownRemainingMs = kLossCooldownMs;
         }
@@ -374,7 +374,7 @@ void SlotDialog::AdvanceFrame(std::uint32_t dtMs)
 
     if (events.jackpotFanfareStarted && _audio)
     {
-        _audio->Play(render::Clip::Jackpot);
+        _audio->Play(waffle::render::Clip::Jackpot);
     }
 
     if (_stateMachine.Current() == waffle::JackpotState::JackpotSequence && _renderer->IsJackpotSequenceDone())

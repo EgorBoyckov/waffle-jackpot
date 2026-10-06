@@ -55,7 +55,7 @@ bool DemoWindow::Create(HINSTANCE instance) {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = &DemoWindow::WndProcThunk;
     wc.hInstance = instance;
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hbrBackground = nullptr;  // Direct2D owns the whole client area
     wc.lpszClassName = kWindowClassName;
     RegisterClassExW(&wc);

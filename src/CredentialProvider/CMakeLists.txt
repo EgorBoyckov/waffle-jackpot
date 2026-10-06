@@ -37,5 +37,5 @@ target_link_libraries(WaffleJackpotProvider
 target_compile_features(WaffleJackpotProvider PRIVATE cxx_std_20)
 
 if(MSVC)
-    target_compile_options(WaffleJackpotProvider PRIVATE /W4)
+    target_compile_options(WaffleJackpotProvider PRIVATE /W4 /Zc:strictStrings-)
 endif()

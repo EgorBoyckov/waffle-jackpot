@@ -76,8 +76,8 @@ private:
 
     std::unique_ptr<waffle::SlotMachine> _slotMachine;
     waffle::JackpotStateMachine _stateMachine;
-    std::unique_ptr<render::SlotRenderer> _renderer;
-    std::unique_ptr<render::AudioManager> _audio;
+    std::unique_ptr<waffle::render::SlotRenderer> _renderer;
+    std::unique_ptr<waffle::render::AudioManager> _audio;
 
     waffle::SpinResult _pendingResult;
     bool _wonJackpot;

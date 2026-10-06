@@ -272,7 +272,7 @@ int RunGui(HINSTANCE instance)
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &WndProc;
     wc.hInstance = instance;
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     wc.lpszClassName = kClassName;
     RegisterClassExW(&wc);

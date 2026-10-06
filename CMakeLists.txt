@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 add_subdirectory(src/Core)
 
 # Render/Demo/CredentialProvider/Control all depend on Win32 (Direct2D,
