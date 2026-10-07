@@ -16,6 +16,7 @@
 
 #include "SlotDialog.h"
 #include "KillSwitch.h"
+#include "Log.h"
 #include "guids.h"
 #include "helpers.h"
 
@@ -63,7 +64,14 @@ IFACEMETHODIMP JackpotCredential::QueryInterface(REFIID riid, void** ppv)
         QITABENT(JackpotCredential, ICredentialProviderCredential2),
         {nullptr, 0},
     };
-    return QISearch(this, qit, riid, ppv);
+    const HRESULT hrQi = QISearch(this, qit, riid, ppv);
+    if (FAILED(hrQi))
+    {
+        wchar_t guid[64] = L"?";
+        StringFromGUID2(riid, guid, _countof(guid));
+        waffle::cp::Log(L"Credential::QueryInterface unsupported IID %s", guid);
+    }
+    return hrQi;
 }
 
 IFACEMETHODIMP_(ULONG) JackpotCredential::AddRef()
@@ -89,6 +97,7 @@ HRESULT JackpotCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, P
         return E_INVALIDARG;
     }
 
+    waffle::cp::Log(L"Credential::Initialize");
     _cpus = cpus;
     _config = config;
     _qualifiedUserName = pwzQualifiedUserName;
@@ -120,6 +129,7 @@ HRESULT JackpotCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, P
 
 IFACEMETHODIMP JackpotCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
 {
+    waffle::cp::Log(L"Credential::Advise");
     if (_pCredProvCredentialEvents)
     {
         _pCredProvCredentialEvents->Release();
@@ -131,6 +141,7 @@ IFACEMETHODIMP JackpotCredential::Advise(ICredentialProviderCredentialEvents* pc
 
 IFACEMETHODIMP JackpotCredential::UnAdvise()
 {
+    waffle::cp::Log(L"Credential::UnAdvise");
     if (_pCredProvCredentialEvents)
     {
         _pCredProvCredentialEvents->Release();
@@ -141,12 +152,15 @@ IFACEMETHODIMP JackpotCredential::UnAdvise()
 
 IFACEMETHODIMP JackpotCredential::SetSelected(BOOL* pbAutoLogon)
 {
+    waffle::cp::Log(L"Credential::SetSelected");
+    waffle::cp::Log(L"Credential::SetSelected");
     *pbAutoLogon = FALSE;
     return S_OK;
 }
 
 IFACEMETHODIMP JackpotCredential::SetDeselected()
 {
+    waffle::cp::Log(L"Credential::SetDeselected");
     // Don't leave a typed password sitting in memory (or on screen) once
     // the tile isn't the active one -- spec §6.5.
     ClearPasswordField();
@@ -161,6 +175,7 @@ IFACEMETHODIMP JackpotCredential::SetDeselected()
 IFACEMETHODIMP JackpotCredential::GetFieldState(DWORD dwFieldID, CREDENTIAL_PROVIDER_FIELD_STATE* pcpfs,
                                                  CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* pcpfis)
 {
+    waffle::cp::Log(L"Credential::GetFieldState");
     if (dwFieldID >= JFI_NUM_FIELDS || !pcpfs || !pcpfis)
     {
         return E_INVALIDARG;
@@ -170,11 +185,13 @@ IFACEMETHODIMP JackpotCredential::GetFieldState(DWORD dwFieldID, CREDENTIAL_PROV
     // runtime as the jackpot gate opens and closes.
     *pcpfs = _rgFieldState[dwFieldID];
     *pcpfis = _rgFieldInteractiveState[dwFieldID];
+    waffle::cp::Log(L"  field %lu state=%d interactive=%d", dwFieldID, static_cast<int>(*pcpfs), static_cast<int>(*pcpfis));
     return S_OK;
 }
 
 IFACEMETHODIMP JackpotCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
 {
+    waffle::cp::Log(L"Credential::GetStringValue(%lu)", dwFieldID);
     if (!ppwsz)
     {
         return E_INVALIDARG;
@@ -187,6 +204,12 @@ IFACEMETHODIMP JackpotCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
         case JFI_COWARD_TEXT:
         case JFI_PASSWORD:
             return SHStrDupW(_rgFieldStrings[dwFieldID] ? _rgFieldStrings[dwFieldID] : L"", ppwsz);
+        case JFI_PULL_LINK:
+            // CPFT_COMMAND_LINK takes its caption from GetStringValue; without
+            // this LogonUI gets E_INVALIDARG and drops the whole tile.
+            return SHStrDupW(L"PULL THE LEVER!", ppwsz);
+        case JFI_SUBMIT_BUTTON:
+            return SHStrDupW(L"Submit", ppwsz);
         default:
             return E_INVALIDARG;
     }
@@ -194,12 +217,14 @@ IFACEMETHODIMP JackpotCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
 
 IFACEMETHODIMP JackpotCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp)
 {
+    waffle::cp::Log(L"Credential::GetBitmapValue");
     if (dwFieldID != JFI_TILEIMAGE || !phbmp)
     {
         return E_INVALIDARG;
     }
 
     HBITMAP hbmp = CreateTileBitmap();
+    waffle::cp::Log(L"  CreateTileBitmap -> %p (err=%lu)", hbmp, hbmp ? 0UL : GetLastError());
     if (!hbmp)
     {
         return HRESULT_FROM_WIN32(GetLastError());
@@ -210,12 +235,14 @@ IFACEMETHODIMP JackpotCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp
 
 IFACEMETHODIMP JackpotCredential::GetCheckboxValue(DWORD /*dwFieldID*/, BOOL* /*pbChecked*/, PWSTR* /*ppwszLabel*/)
 {
+    waffle::cp::Log(L"Credential::GetCheckboxValue");
     // No checkbox fields in this tile.
     return E_INVALIDARG;
 }
 
 IFACEMETHODIMP JackpotCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* pdwAdjacentTo)
 {
+    waffle::cp::Log(L"Credential::GetSubmitButtonValue");
     if (dwFieldID != JFI_SUBMIT_BUTTON || !pdwAdjacentTo)
     {
         return E_INVALIDARG;
@@ -227,17 +254,20 @@ IFACEMETHODIMP JackpotCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* p
 IFACEMETHODIMP JackpotCredential::GetComboBoxValueCount(DWORD /*dwFieldID*/, DWORD* /*pcItems*/,
                                                          DWORD* /*pdwSelectedItem*/)
 {
+    waffle::cp::Log(L"Credential::GetComboBoxValueCount");
     // No combo box fields in this tile.
     return E_INVALIDARG;
 }
 
 IFACEMETHODIMP JackpotCredential::GetComboBoxValueAt(DWORD /*dwFieldID*/, DWORD /*dwItem*/, PWSTR* /*ppwszItem*/)
 {
+    waffle::cp::Log(L"Credential::GetComboBoxValueAt");
     return E_INVALIDARG;
 }
 
 IFACEMETHODIMP JackpotCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
 {
+    waffle::cp::Log(L"Credential::SetStringValue");
     if (dwFieldID != JFI_PASSWORD || !pwz)
     {
         return E_INVALIDARG;
@@ -249,16 +279,20 @@ IFACEMETHODIMP JackpotCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
 
 IFACEMETHODIMP JackpotCredential::SetCheckboxValue(DWORD /*dwFieldID*/, BOOL /*bChecked*/)
 {
+    waffle::cp::Log(L"Credential::SetCheckboxValue");
     return E_INVALIDARG;
 }
 
 IFACEMETHODIMP JackpotCredential::SetComboBoxSelectedValue(DWORD /*dwFieldID*/, DWORD /*dwSelectedItem*/)
 {
+    waffle::cp::Log(L"Credential::SetComboBoxSelectedValue");
     return E_INVALIDARG;
 }
 
 IFACEMETHODIMP JackpotCredential::CommandLinkClicked(DWORD dwFieldID)
 {
+    waffle::cp::Log(L"Credential::CommandLinkClicked");
+    waffle::cp::Log(L"Credential::CommandLinkClicked(%lu)", dwFieldID);
     if (dwFieldID != JFI_PULL_LINK)
     {
         return E_INVALIDARG;
@@ -291,6 +325,7 @@ IFACEMETHODIMP JackpotCredential::CommandLinkClicked(DWORD dwFieldID)
     // LogonUI's own message loop the moment the user wins or closes it.
     SlotDialog dialog(_config);
     const bool wonJackpot = dialog.RunModal(hwndOwner);
+    waffle::cp::Log(L"SlotDialog finished, wonJackpot=%d", wonJackpot ? 1 : 0);
     if (wonJackpot)
     {
         UnlockPasswordField();
@@ -304,6 +339,7 @@ IFACEMETHODIMP JackpotCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIA
                                                      PWSTR* ppwszOptionalStatusText,
                                                      CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
 {
+    waffle::cp::Log(L"Credential::GetSerialization");
     if (ppwszOptionalStatusText)
     {
         *ppwszOptionalStatusText = nullptr;
@@ -313,6 +349,7 @@ IFACEMETHODIMP JackpotCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIA
         *pcpsiOptionalStatusIcon = CPSI_NONE;
     }
 
+    waffle::cp::Log(L"Credential::GetSerialization");
     PWSTR pwzProtectedPassword = nullptr;
     HRESULT hr = ProtectIfNecessaryAndCopyPassword(
         _rgFieldStrings[JFI_PASSWORD] ? _rgFieldStrings[JFI_PASSWORD] : L"", _cpus, &pwzProtectedPassword);
@@ -382,7 +419,9 @@ IFACEMETHODIMP JackpotCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsS
                                                 PWSTR* ppwszOptionalStatusText,
                                                 CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
 {
+    waffle::cp::Log(L"Credential::ReportResult");
     *ppwszOptionalStatusText = nullptr;
+    waffle::cp::Log(L"Credential::ReportResult status=0x%08lX sub=0x%08lX", static_cast<unsigned long>(ntsStatus), static_cast<unsigned long>(ntsSubstatus));
     *pcpsiOptionalStatusIcon = CPSI_NONE;
 
     if (ntsStatus == STATUS_SUCCESS)
@@ -422,6 +461,7 @@ IFACEMETHODIMP JackpotCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsS
 
 IFACEMETHODIMP JackpotCredential::GetUserSid(PWSTR* ppwszSid)
 {
+    waffle::cp::Log(L"Credential::GetUserSid");
     if (!ppwszSid)
     {
         return E_INVALIDARG;

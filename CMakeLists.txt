@@ -7,6 +7,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(WIN32)
     add_compile_definitions(NOMINMAX)
+    # Link the CRT statically: the provider DLL loads into LogonUI before any
+    # user session exists and must not depend on the VC++ Redistributable
+    # being installed on the target machine.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
 endif()
 
 add_subdirectory(src/Core)

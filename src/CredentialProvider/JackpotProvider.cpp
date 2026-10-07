@@ -8,6 +8,7 @@
 #include <shlwapi.h>
 
 #include "KillSwitch.h"
+#include "Log.h"
 
 namespace {
 
@@ -22,6 +23,27 @@ std::wstring ResolveConfigPath()
     }
     CoTaskMemFree(pwzProgramData);
     return path;
+}
+
+// With a single local account LogonUI pre-selects the tile of whichever
+// provider last logged that user in (Password/PIN), and ours would only
+// appear under "Sign-in options" -- the waffles would never be seen. LogonUI
+// remembers that choice per user SID under LogonUI\UserTile (plus the global
+// LastLoggedOnProvider), so make ours the remembered one. A successful logon
+// through another provider overwrites it, hence this runs on every
+// enumeration. Failures are logged and otherwise ignored (spec §9.1).
+void PreferThisProvider(PCWSTR pwzSid)
+{
+    constexpr wchar_t kLogonUiKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Authentication\\LogonUI";
+    constexpr wchar_t kUserTileKey[] =
+        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Authentication\\LogonUI\\UserTile";
+    constexpr wchar_t kClsid[] = L"{81BD70D2-21D9-40AC-8CE2-51E7FEED8EAF}";
+    constexpr DWORD kClsidBytes = sizeof(kClsid);
+
+    const LSTATUS s1 = RegSetKeyValueW(HKEY_LOCAL_MACHINE, kUserTileKey, pwzSid, REG_SZ, kClsid, kClsidBytes);
+    const LSTATUS s2 =
+        RegSetKeyValueW(HKEY_LOCAL_MACHINE, kLogonUiKey, L"LastLoggedOnProvider", REG_SZ, kClsid, kClsidBytes);
+    waffle::cp::Log(L"PreferThisProvider sid=%s UserTile=%ld LastLoggedOnProvider=%ld", pwzSid, s1, s2);
 }
 
 }  // namespace
@@ -46,10 +68,13 @@ JackpotProvider::JackpotProvider()
     // config file present" safely (never throws, spec §9.1) regardless.
     const std::wstring configPath = ResolveConfigPath();
     _config = configPath.empty() ? waffle::Config::Default() : waffle::ConfigLoader::LoadFromFile(configPath);
+    waffle::cp::Log(L"Provider ctor: config='%s' enabled=%d showInRemote=%d", configPath.c_str(), _config.enabled ? 1 : 0,
+                    _config.showInRemoteSessions ? 1 : 0);
 
     // spec §9.2 kill switch: count this initialization; RecordCleanShutdown
     // (destructor) balances it out unless we crash before getting there.
     waffle::cp::RecordInitializationStart();
+    waffle::cp::Log(L"Provider ctor: init counted, killswitch active=%d", waffle::cp::IsKillSwitchActive() ? 1 : 0);
 }
 
 JackpotProvider::~JackpotProvider()
@@ -65,6 +90,7 @@ JackpotProvider::~JackpotProvider()
         _pCredProvEvents = nullptr;
     }
 
+    waffle::cp::Log(L"Provider dtor");
     // Reaching here means this session didn't crash -- see KillSwitch.h.
     waffle::cp::RecordCleanShutdown();
 }
@@ -76,7 +102,14 @@ IFACEMETHODIMP JackpotProvider::QueryInterface(REFIID riid, void** ppv)
         QITABENT(JackpotProvider, ICredentialProviderSetUserArray),
         {nullptr, 0},
     };
-    return QISearch(this, qit, riid, ppv);
+    const HRESULT hrQi = QISearch(this, qit, riid, ppv);
+    if (FAILED(hrQi))
+    {
+        wchar_t guid[64] = L"?";
+        StringFromGUID2(riid, guid, _countof(guid));
+        waffle::cp::Log(L"Provider::QueryInterface unsupported IID %s", guid);
+    }
+    return hrQi;
 }
 
 IFACEMETHODIMP_(ULONG) JackpotProvider::AddRef()
@@ -98,11 +131,13 @@ bool JackpotProvider::ShouldParticipate() const
 {
     if (!_config.enabled)
     {
+        waffle::cp::Log(L"ShouldParticipate: no (config.enabled=false)");
         return false;
     }
     // spec §6.3: RDP sessions get the normal Windows logon by default.
     if (GetSystemMetrics(SM_REMOTESESSION) && !_config.showInRemoteSessions)
     {
+        waffle::cp::Log(L"ShouldParticipate: no (remote session)");
         return false;
     }
     // spec §9.2: three crashes/failed inits in a row and we stop showing
@@ -111,6 +146,7 @@ bool JackpotProvider::ShouldParticipate() const
     // disabled config.
     if (waffle::cp::IsKillSwitchActive())
     {
+        waffle::cp::Log(L"ShouldParticipate: no (KILL SWITCH active; run WaffleJackpotControl.exe enable)");
         return false;
     }
     return true;
@@ -119,6 +155,7 @@ bool JackpotProvider::ShouldParticipate() const
 IFACEMETHODIMP JackpotProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD /*dwFlags*/)
 {
     _cpus = cpus;
+    waffle::cp::Log(L"SetUsageScenario(%d)", static_cast<int>(cpus));
 
     switch (cpus)
     {
@@ -135,11 +172,13 @@ IFACEMETHODIMP JackpotProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENA
     }
 
     _participate = ShouldParticipate();
+    waffle::cp::Log(L"SetUsageScenario: participate=%d", _participate ? 1 : 0);
     return S_OK;
 }
 
 IFACEMETHODIMP JackpotProvider::SetSerialization(const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* /*pcpcs*/)
 {
+    waffle::cp::Log(L"Provider::SetSerialization");
     // We don't support being handed a pre-existing serialized credential
     // (e.g. a Remote Desktop client passing creds through) -- only
     // interactive password entry via our own tile.
@@ -148,6 +187,7 @@ IFACEMETHODIMP JackpotProvider::SetSerialization(const CREDENTIAL_PROVIDER_CREDE
 
 IFACEMETHODIMP JackpotProvider::Advise(ICredentialProviderEvents* pcpe, UINT_PTR upAdviseContext)
 {
+    waffle::cp::Log(L"Provider::Advise");
     if (_pCredProvEvents)
     {
         _pCredProvEvents->Release();
@@ -160,6 +200,7 @@ IFACEMETHODIMP JackpotProvider::Advise(ICredentialProviderEvents* pcpe, UINT_PTR
 
 IFACEMETHODIMP JackpotProvider::UnAdvise()
 {
+    waffle::cp::Log(L"Provider::UnAdvise");
     if (_pCredProvEvents)
     {
         _pCredProvEvents->Release();
@@ -170,6 +211,7 @@ IFACEMETHODIMP JackpotProvider::UnAdvise()
 
 IFACEMETHODIMP JackpotProvider::GetFieldDescriptorCount(DWORD* pdwCount)
 {
+    waffle::cp::Log(L"Provider::GetFieldDescriptorCount");
     if (!pdwCount)
     {
         return E_INVALIDARG;
@@ -180,11 +222,12 @@ IFACEMETHODIMP JackpotProvider::GetFieldDescriptorCount(DWORD* pdwCount)
 
 IFACEMETHODIMP JackpotProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** ppcpfd)
 {
+    waffle::cp::Log(L"Provider::GetFieldDescriptorAt");
     if (dwIndex >= JFI_NUM_FIELDS || !ppcpfd)
     {
         return E_INVALIDARG;
     }
-    return FieldDescriptorCoAllocCopy(s_rgCredProvFieldDescriptors[dwIndex], ppcpfd);
+    return waffle::cp::LogHr(L"  GetFieldDescriptorAt", FieldDescriptorCoAllocCopy(s_rgCredProvFieldDescriptors[dwIndex], ppcpfd));
 }
 
 IFACEMETHODIMP JackpotProvider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, BOOL* pbAutoLogonWithDefault)
@@ -202,11 +245,14 @@ IFACEMETHODIMP JackpotProvider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDe
         // spec §9.1: a provider that has decided not to participate (or
         // hit an initialization problem) just shows zero tiles -- never a
         // hard failure that could take LogonUI down with it.
+        waffle::cp::Log(L"GetCredentialCount: 0 (participate=%d userArray=%d)", _participate ? 1 : 0, _pUserArray ? 1 : 0);
         *pdwCount = 0;
         return S_OK;
     }
 
-    return _pUserArray->GetCount(pdwCount);
+    const HRESULT hrCount = _pUserArray->GetCount(pdwCount);
+    waffle::cp::Log(L"GetCredentialCount: %lu tiles hr=0x%08lX", hrCount == S_OK ? *pdwCount : 0, static_cast<unsigned long>(hrCount));
+    return hrCount;
 }
 
 IFACEMETHODIMP JackpotProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential** ppcpc)
@@ -243,6 +289,7 @@ IFACEMETHODIMP JackpotProvider::GetCredentialAt(DWORD dwIndex, ICredentialProvid
                 hr = credential->Initialize(_cpus, pwzQualifiedUserName, pwzSid, _config);
                 if (SUCCEEDED(hr))
                 {
+                    PreferThisProvider(pwzSid);
                     hr = credential->QueryInterface(IID_PPV_ARGS(ppcpc));
                 }
                 credential->Release();
@@ -257,7 +304,7 @@ IFACEMETHODIMP JackpotProvider::GetCredentialAt(DWORD dwIndex, ICredentialProvid
     }
 
     pUser->Release();
-    return hr;
+    return waffle::cp::LogHr(L"GetCredentialAt", hr);
 }
 
 IFACEMETHODIMP JackpotProvider::SetUserArray(ICredentialProviderUserArray* users)
@@ -272,6 +319,7 @@ IFACEMETHODIMP JackpotProvider::SetUserArray(ICredentialProviderUserArray* users
     }
     users->AddRef();
     _pUserArray = users;
+    waffle::cp::Log(L"SetUserArray ok");
     return S_OK;
 }
 

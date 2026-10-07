@@ -29,6 +29,21 @@ $ErrorActionPreference = 'Stop'
 $ClsidString = '{81BD70D2-21D9-40AC-8CE2-51E7FEED8EAF}'
 $providerKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$ClsidString"
 
+# Drop the "default tile" pointers so LogonUI doesn't preselect a provider
+# that is no longer enumerated (see install.ps1).
+$logonUiKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI'
+if ((Get-ItemProperty -Path $logonUiKey -ErrorAction SilentlyContinue).LastLoggedOnProvider -eq $ClsidString) {
+    Remove-ItemProperty -Path $logonUiKey -Name 'LastLoggedOnProvider' -ErrorAction SilentlyContinue
+}
+$userTile = Get-Item -Path "$logonUiKey\UserTile" -ErrorAction SilentlyContinue
+if ($userTile) {
+    foreach ($name in $userTile.GetValueNames()) {
+        if ($userTile.GetValue($name) -eq $ClsidString) {
+            Remove-ItemProperty -Path $userTile.PSPath -Name $name -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 if (Test-Path $providerKey) {
     Remove-Item -Path $providerKey -Force
     Write-Host 'Waffle Jackpot Login disabled. It will not appear on the next logon screen.' -ForegroundColor Green

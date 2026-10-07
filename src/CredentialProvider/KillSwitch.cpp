@@ -2,11 +2,15 @@
 
 #include <windows.h>
 
+#include <atomic>
+
 namespace waffle::cp {
 namespace {
 
 constexpr wchar_t kKeyPath[] = L"SOFTWARE\\WaffleJackpot";
 constexpr wchar_t kValueName[] = L"CrashCount";
+
+std::atomic<bool> g_counted{false};
 
 DWORD ReadCount()
 {
@@ -42,11 +46,18 @@ void WriteCount(DWORD value)
 
 void RecordInitializationStart()
 {
+    g_counted = true;
     WriteCount(ReadCount() + 1);
 }
 
 void RecordCleanShutdown()
 {
+    // Balances exactly one RecordInitializationStart; both the provider
+    // destructor and DLL_PROCESS_DETACH call this.
+    if (!g_counted.exchange(false))
+    {
+        return;
+    }
     const DWORD current = ReadCount();
     if (current > 0)
     {

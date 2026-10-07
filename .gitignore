@@ -5,3 +5,4 @@ out/
 *.ilk
 *.exe
 .vs/
+dist/

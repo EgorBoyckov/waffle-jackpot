@@ -75,7 +75,12 @@ Test-SupportedOs
 Test-SupportedArch
 
 if (-not $DllPath) {
-    $DllPath = Join-Path $RepoRoot 'build\src\CredentialProvider\WaffleJackpotProvider.dll'
+    # Packaged layout (bin\) first, then the CMake Release build tree.
+    $candidates = @(
+        (Join-Path $RepoRoot 'bin\WaffleJackpotProvider.dll'),
+        (Join-Path $RepoRoot 'build\src\CredentialProvider\Release\WaffleJackpotProvider.dll')
+    )
+    $DllPath = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 if (-not (Test-Path $DllPath)) {
     throw "Built DLL not found at '$DllPath'. Build the solution (CMake + VS 2022, x64 or ARM64) first, or pass -DllPath explicitly."
@@ -86,11 +91,40 @@ if (-not (Test-Path $DllPath)) {
 # isn't a system component, and %ProgramFiles% already denies write access
 # to non-administrators by default -- we tighten it further below since
 # this specific DLL loads into LogonUI as SYSTEM.
+#
+# ACLs are set with well-known SIDs, NOT group names: 'Administrators' and
+# 'BUILTIN\Users' don't resolve on localized Windows (e.g. "Администраторы"),
+# icacls then fails as a whole, and after /inheritance:r that leaves the file
+# with NO access for anyone -- including SYSTEM, so LogonUI can't load it.
+$SidAdmins = '*S-1-5-32-544'
+$SidSystem = '*S-1-5-18'
+$SidUsers  = '*S-1-5-32-545'
+
+function Invoke-Icacls {
+    param([string[]]$IcaclsArgs)
+    $output = & icacls.exe @IcaclsArgs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "icacls $($IcaclsArgs -join ' ') failed ($LASTEXITCODE): $output"
+    }
+}
+
+# Recover from a previous (broken) install whose ACL left nobody with access.
+function Reset-Acl {
+    param([string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        & takeown.exe /f $Path /r /d y 2>&1 | Out-Null
+        & icacls.exe $Path /reset /t /c 2>&1 | Out-Null
+    }
+}
+
+Reset-Acl $InstallDir
+Reset-Acl $ConfigDir
+
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -Path $DllPath -Destination $DestDllPath -Force
 
-icacls $DestDllPath /inheritance:r | Out-Null
-icacls $DestDllPath /grant:r 'Administrators:(RX)' 'SYSTEM:(RX)' 'BUILTIN\Users:(RX)' | Out-Null
+Invoke-Icacls @($DestDllPath, '/inheritance:r')
+Invoke-Icacls @($DestDllPath, '/grant:r', "${SidAdmins}:(RX)", "${SidSystem}:(RX)", "${SidUsers}:(RX)")
 
 # --- Register COM in-proc server --------------------------------------------
 $clsidKey = "HKLM:\SOFTWARE\Classes\CLSID\$ClsidString"
@@ -107,6 +141,18 @@ $providerKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\C
 New-Item -Path $providerKey -Force | Out-Null
 Set-ItemProperty -Path $providerKey -Name '(Default)' -Value 'Waffle Jackpot Login'
 
+# --- Make our tile the pre-selected one -------------------------------------
+# Otherwise LogonUI pre-selects the Password/PIN tile of whichever provider
+# last logged the user in, and ours hides under "Sign-in options". The
+# provider also re-asserts this on every logon screen (JackpotProvider.cpp).
+$logonUiKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI'
+$userTileKey = "$logonUiKey\UserTile"
+New-Item -Path $userTileKey -Force | Out-Null
+Set-ItemProperty -Path $logonUiKey -Name 'LastLoggedOnProvider' -Value $ClsidString
+Get-CimInstance Win32_UserAccount -Filter 'LocalAccount=True AND Disabled=False' | ForEach-Object {
+    Set-ItemProperty -Path $userTileKey -Name $_.SID -Value $ClsidString
+}
+
 # --- Deploy config, safe ACL -------------------------------------------------
 # Write: Administrators + SYSTEM only (spec §7 -- the DLL runs as SYSTEM in
 # LogonUI and must not trust a config an ordinary user could have edited).
@@ -116,8 +162,8 @@ if (-not (Test-Path $ConfigPath)) {
     $defaultConfig = Join-Path $RepoRoot 'config\config.default.json'
     Copy-Item -Path $defaultConfig -Destination $ConfigPath
 }
-icacls $ConfigDir /inheritance:r | Out-Null
-icacls $ConfigDir /grant:r 'Administrators:(OI)(CI)(F)' 'SYSTEM:(OI)(CI)(F)' 'BUILTIN\Users:(OI)(CI)(RX)' | Out-Null
+Invoke-Icacls @($ConfigDir, '/inheritance:r')
+Invoke-Icacls @($ConfigDir, '/grant:r', "${SidAdmins}:(OI)(CI)(F)", "${SidSystem}:(OI)(CI)(F)", "${SidUsers}:(OI)(CI)(RX)")
 
 Write-Host ''
 Write-Host 'Installed. Waffle Jackpot Login will appear on the next logon screen.' -ForegroundColor Green

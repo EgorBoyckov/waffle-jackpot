@@ -32,6 +32,7 @@ function Remove-PathIfPresent {
     try {
         # Undo install.ps1's ACL lockdown first, or the delete can fail --
         # /reset restores inheritance so Remove-Item can actually touch it.
+        takeown.exe /f $Path /r /d y 2>$null | Out-Null
         icacls $Path /reset /T /C 2>$null | Out-Null
         if ($Recurse) {
             Remove-Item -Path $Path -Recurse -Force -ErrorAction Stop
@@ -45,6 +46,20 @@ function Remove-PathIfPresent {
 }
 
 $report = [ordered]@{}
+
+# 0. Clear the "default tile" pointers (see install.ps1 / disable.ps1).
+$logonUiKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI'
+if ((Get-ItemProperty -Path $logonUiKey -ErrorAction SilentlyContinue).LastLoggedOnProvider -eq $ClsidString) {
+    Remove-ItemProperty -Path $logonUiKey -Name 'LastLoggedOnProvider' -ErrorAction SilentlyContinue
+}
+$userTile = Get-Item -Path "$logonUiKey\UserTile" -ErrorAction SilentlyContinue
+if ($userTile) {
+    foreach ($name in $userTile.GetValueNames()) {
+        if ($userTile.GetValue($name) -eq $ClsidString) {
+            Remove-ItemProperty -Path $userTile.PSPath -Name $name -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 # 1. Disable first (same effect as disable.ps1).
 $report['Provider registration'] = Remove-PathIfPresent -Path $providerKey

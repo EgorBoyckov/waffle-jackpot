@@ -14,6 +14,8 @@ add_library(WaffleJackpotProvider SHARED
     JackpotProvider.cpp
     KillSwitch.h
     KillSwitch.cpp
+    Log.h
+    Log.cpp
     SlotDialog.h
     SlotDialog.cpp
     resource.h
@@ -37,5 +39,5 @@ target_link_libraries(WaffleJackpotProvider
 target_compile_features(WaffleJackpotProvider PRIVATE cxx_std_20)
 
 if(MSVC)
-    target_compile_options(WaffleJackpotProvider PRIVATE /W4 /Zc:strictStrings-)
+    target_compile_options(WaffleJackpotProvider PRIVATE /W4 /utf-8 /Zc:strictStrings-)
 endif()

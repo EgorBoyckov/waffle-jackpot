@@ -14,6 +14,8 @@
 #include "dllmain.h"
 
 #include "ClassFactory.h"
+#include "KillSwitch.h"
+#include "Log.h"
 
 namespace {
 LONG g_cRef = 0;
@@ -38,18 +40,28 @@ STDAPI DllCanUnloadNow()
 
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** ppv)
 {
-    return ClassFactory_CreateInstance(rclsid, riid, ppv);
+    const HRESULT hr = ClassFactory_CreateInstance(rclsid, riid, ppv);
+    waffle::cp::Log(L"DllGetClassObject -> 0x%08lX", static_cast<unsigned long>(hr));
+    return hr;
 }
 
-extern "C" BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD dwReason, void* /*reserved*/)
+extern "C" BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD dwReason, void* reserved)
 {
     switch (dwReason)
     {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hinstDll);
             g_hinst = hinstDll;
+            waffle::cp::Log(L"DLL_PROCESS_ATTACH (provider DLL loaded)");
             break;
         case DLL_PROCESS_DETACH:
+            // LogonUI is usually torn down without releasing the provider,
+            // which would leave the kill-switch counter incremented and
+            // eventually disable the tile after a few reboots. A real
+            // crash never reaches here, so the counter still works.
+            waffle::cp::RecordCleanShutdown();
+            waffle::cp::Log(L"DLL_PROCESS_DETACH (reserved=%p)", reserved);
+            break;
         case DLL_THREAD_ATTACH:
         case DLL_THREAD_DETACH:
             break;
